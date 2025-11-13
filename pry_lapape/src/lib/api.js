@@ -31,6 +31,48 @@ export async function api(path, { method = "POST", body, headers } = {}) {
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || data?.message || "Error de servidor");
+  if (!res.ok) {
+    const message = data?.error || data?.message || "Error de servidor";
+    const error = new Error(message);
+    if (data && typeof data === "object") {
+      error.data = data;
+    }
+    error.status = res.status;
+    throw error;
+  }
   return data;
+}
+
+function decodeSegment(segment) {
+  const base64 = segment.replace(/-/g, "+").replace(/_/g, "/");
+
+  if (typeof window === "undefined") {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(base64, "base64").toString("utf8");
+    }
+    const binary = globalThis.atob ? globalThis.atob(base64) : "";
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  }
+
+  const binary = window.atob(base64);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const decoder = new TextDecoder("utf-8");
+  return decoder.decode(bytes);
+}
+
+export function decodeJWT(token) {
+  if (!token || typeof token !== "string") {
+    return {};
+  }
+
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return {};
+
+    const json = decodeSegment(payload);
+    return JSON.parse(json);
+  } catch (err) {
+    return {};
+  }
 }

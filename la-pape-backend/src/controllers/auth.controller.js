@@ -180,7 +180,9 @@ export async function loginStep1(req, res, next) {
     }
 
     if (!user.isVerified) {
-      return res.status(403).json({ error: "Verifica tu correo antes de continuar" });
+      return res
+        .status(403)
+        .json({ error: "Verifica tu correo antes de continuar", needEmailVerify: true });
     }
 
     if (!user.twoFAEnabled) {
