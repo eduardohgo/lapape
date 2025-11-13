@@ -2,6 +2,7 @@
 import Header from "@/components/Header";
 import Input from "@/components/Inputs";
 import { PrimaryButton, SecondaryButton } from "@/components/Buttons";
+import { api } from "@/lib/api";
 import { UserPlus, Package, Sparkles, Shield, Gift, Star, ArrowLeft } from "lucide-react";
 import { useState } from "react";
 
@@ -13,8 +14,6 @@ export default function RegistroPage(){
   const [rol, setRol] = useState(""); // si no eliges, enviamos CLIENTE
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
-
-  const API = process.env.NEXT_PUBLIC_API_URL; // ej: http://localhost:4000
 
   async function onSubmit(e){
     e.preventDefault();
@@ -38,32 +37,24 @@ export default function RegistroPage(){
 
     setLoading(true);
     try {
-      const res = await fetch(`${API}/auth/register`, {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
+      const data = await api("/auth/register", {
+        body: {
           nombre: nombreT,
           email: emailT,
           password,
           rol: rol || "CLIENTE", // 👈 por defecto
-        }),
+        },
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        // Muestra el detalle de validación si viene de Mongoose
-        if (data?.details && typeof data.details === "object") {
-          const joined = Object.entries(data.details)
-            .map(([campo, msg]) => `${campo}: ${msg}`)
-            .join(" • ");
-          throw new Error(joined || data.error || "Error en registro");
-        }
-        throw new Error(data?.message || data?.error || "Error en registro");
+      if (data?.details && typeof data.details === "object") {
+        const joined = Object.entries(data.details)
+          .map(([campo, msg]) => `${campo}: ${msg}`)
+          .join(" • ");
+        throw new Error(joined || data.error || "Error en registro");
       }
 
-      alert("Registro exitoso. Revisa tu correo para verificar la cuenta.");
-      window.location.href = "/login";
+      alert("Registro exitoso. Ingresa el código enviado a tu correo para activar tu cuenta.");
+      window.location.href = `/verificar-correo?email=${encodeURIComponent(emailT)}`;
     } catch (err){
       console.error("Error en registro:", err);
       setErrorMsg(err.message || "Error en registro");

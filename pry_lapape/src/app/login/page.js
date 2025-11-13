@@ -6,7 +6,7 @@ import Header from "@/components/Header";
 import Input from "@/components/Inputs";
 import { PrimaryButton, SecondaryButton } from "@/components/Buttons";
 import { LogIn, UserPlus, Package, Sparkles, Shield, Truck, Star } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, decodeJWT } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,15 +33,14 @@ export default function LoginPage() {
       }
 
       // 2) Si requiere OTP (2FA por correo)
-      if (res.needOtp) {
-        // Opcional: podrías guardar un temp token si tu backend lo envía (res.tempToken)
-        router.push(`/verificar-otp?email=${encodeURIComponent(email)}`);
+      if (res.needOtp || res.stage === "2fa") {
+        router.push(`/verificar-2fa?email=${encodeURIComponent(email)}`);
         return;
       }
 
       // 3) Login completo con token
       if (res.token) {
-        const payload = parseJwt(res.token);
+        const payload = decodeJWT(res.token);
         const user = {
           id: payload?.id,
           role: payload?.role || payload?.rol || "CLIENTE",
@@ -66,22 +65,16 @@ export default function LoginPage() {
       // Si no llega nada reconocible
       alert("Respuesta inesperada del servidor.");
     } catch (err) {
+      if (err?.data?.needEmailVerify || err?.message?.toLowerCase?.().includes("verifica")) {
+        alert(err.message || "Verifica tu correo antes de continuar");
+        router.push(`/verificar-correo?email=${encodeURIComponent(email)}`);
+        return;
+      }
       alert(err.message || "Error al iniciar sesión");
     } finally {
       setLoading(false);
     }
   };
-
-  // Helper simple para leer el JWT
-  function parseJwt(token) {
-    try {
-      const base64Url = token.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      return JSON.parse(decodeURIComponent(escape(window.atob(base64))));
-    } catch {
-      return {};
-    }
-  }
 
   return (
     <>
