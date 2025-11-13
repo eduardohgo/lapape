@@ -122,6 +122,8 @@ export async function register(req, res, next) {
 export async function verifyEmail(req, res, next) {
   try {
     const { email, code } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const trimmedCode = typeof code === "string" ? code.trim() : String(code || "").trim();
 
     if (!isEmail(email) || !code) {
       return res.status(400).json({ error: "Solicitud inválida" });
