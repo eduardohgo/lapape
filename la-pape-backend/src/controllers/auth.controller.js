@@ -122,12 +122,14 @@ export async function register(req, res, next) {
 export async function verifyEmail(req, res, next) {
   try {
     const { email, code } = req.body;
+    const normalizedEmail = normalizeEmail(email);
+    const trimmedCode = typeof code === "string" ? code.trim() : String(code || "").trim();
 
-    if (!isEmail(email) || !code) {
+    if (!isEmail(email) || !trimmedCode) {
       return res.status(400).json({ error: "Solicitud inválida" });
     }
 
-    const user = await User.findOne({ email: normalizeEmail(email) });
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user || !user.verifyCode || !user.verifyCodeExpires) {
       return res.status(400).json({ error: "Código inválido" });
     }
@@ -136,7 +138,7 @@ export async function verifyEmail(req, res, next) {
       return res.status(400).json({ error: "El código ha expirado" });
     }
 
-    const valid = await compareToken(code, user.verifyCode);
+    const valid = await compareToken(trimmedCode, user.verifyCode);
     if (!valid) {
       return res.status(400).json({ error: "Código incorrecto" });
     }
