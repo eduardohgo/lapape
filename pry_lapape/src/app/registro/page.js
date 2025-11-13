@@ -62,8 +62,8 @@ export default function RegistroPage(){
         throw new Error(data?.message || data?.error || "Error en registro");
       }
 
-      alert("Registro exitoso. Revisa tu correo para verificar la cuenta.");
-      window.location.href = "/login";
+      alert("Registro exitoso. Ingresa el código enviado a tu correo para activar tu cuenta.");
+      window.location.href = `/verificar-correo?email=${encodeURIComponent(emailT)}`;
     } catch (err){
       console.error("Error en registro:", err);
       setErrorMsg(err.message || "Error en registro");
