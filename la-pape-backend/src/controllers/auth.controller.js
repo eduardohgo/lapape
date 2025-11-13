@@ -17,11 +17,26 @@ export async function register(req, res, next) {
   try {
     const { nombre, email, password, rol } = req.body;
 
-    if (!nombre || !email || !password) {
-      return res.status(400).json({ error: "Faltan campos obligatorios" });
+    if (!nombre || !nombre.trim()) {
+      return res.status(400).json({ error: "El nombre es obligatorio" });
     }
 
-    const exists = await User.findOne({ email });
+    if (!isEmail(email)) {
+      return res.status(400).json({ error: "Correo electrónico inválido" });
+    }
+
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({ error: "La contraseña debe tener al menos 8 caracteres" });
+    }
+
+    const role = (rol || "CLIENTE").toUpperCase();
+    if (!isValidRole(role)) {
+      return res.status(400).json({ error: "Rol inválido" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const exists = await User.findOne({ email: normalizedEmail });
     if (exists) return res.status(409).json({ error: "El correo ya está registrado" });
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -32,10 +47,10 @@ export async function register(req, res, next) {
     const verifyCodeExpires = expMinutes(10);
 
     const user = await User.create({
-      nombre,
-      email,
+      nombre: nombre.trim(),
+      email: normalizedEmail,
       passwordHash,
-      rol: rol || "CLIENTE",
+      rol: role,
       verifyCode,
       verifyCodeExpires,
       isVerified: false,
@@ -43,7 +58,7 @@ export async function register(req, res, next) {
 
     // Enviar correo
     await sendMail({
-      to: email,
+      to: normalizedEmail,
       subject: "Verifica tu cuenta | La Pape",
       html: templates.otp(code, "Código de verificación de correo"),
       devLog: `TOKEN VERIFICACIÓN: ${code}`,
@@ -66,7 +81,12 @@ export const verifyEmail = async (req, res) => {
   try {
     const { email, code } = req.body;
 
-    const user = await User.findOne({ email });
+    if (!isEmail(email) || !code) {
+      return res.status(400).json({ error: "Solicitud inválida" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user || !user.verifyCode || !user.verifyCodeExpires) {
       return res.status(400).json({ error: "Solicitud inválida" });
     }
@@ -96,7 +116,12 @@ export const loginStep1 = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    if (!isEmail(email) || !password) {
+      return res.status(400).json({ error: "Credenciales inválidas" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) return res.status(400).json({ error: "Credenciales inválidas" });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
@@ -114,14 +139,18 @@ export const loginStep1 = async (req, res) => {
       await user.save();
 
       await sendMail({
-        to: email,
+        to: normalizedEmail,
         subject: "Código de acceso (2FA) | La Pape",
         html: templates.otp(code, "Tu código de acceso (2FA)"),
         devLog: `CÓDIGO 2FA: ${code}`,
       });
 
-      return res.json({ ok: true, stage: "2fa", email });
+      return res.json({ ok: true, stage: "2fa", email: normalizedEmail });
     }
+
+    user.twoFAHash = null;
+    user.twoFAExp = null;
+    await user.save();
 
     const token = signToken(user);
     res.json({ ok: true, stage: "done", token });
@@ -137,7 +166,12 @@ export const loginStep2 = async (req, res) => {
   try {
     const { email, code } = req.body;
 
-    const user = await User.findOne({ email });
+    if (!isEmail(email) || !code) {
+      return res.status(400).json({ error: "Solicitud inválida" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user || !user.twoFAHash || !user.twoFAExp) return res.status(400).json({ error: "Solicitud inválida" });
     if (new Date() > user.twoFAExp) return res.status(400).json({ error: "Código 2FA expirado" });
 
@@ -161,7 +195,12 @@ export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
 
-    const user = await User.findOne({ email });
+    if (!isEmail(email)) {
+      return res.json({ ok: true });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) return res.json({ ok: true }); // no exponemos existencia
 
     const code = random6();
@@ -170,7 +209,7 @@ export const forgotPassword = async (req, res) => {
     await user.save();
 
     await sendMail({
-      to: email,
+      to: normalizedEmail,
       subject: "Código para recuperar contraseña | La Pape",
       html: templates.otp(code, "Recupera tu contraseña"),
       devLog: `CÓDIGO RESET: ${code}`,
@@ -189,7 +228,12 @@ export const resetPassword = async (req, res) => {
     const { email, code, newPassword } = req.body;
     if (!isStrongPassword(newPassword)) return res.status(400).json({ error: "Contraseña mínima 8" });
 
-    const user = await User.findOne({ email });
+    if (!isEmail(email) || !code) {
+      return res.status(400).json({ error: "Solicitud inválida" });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user || !user.resetOTPHash || !user.resetOTPExp) return res.status(400).json({ error: "Solicitud inválida" });
     if (new Date() > user.resetOTPExp) return res.status(400).json({ error: "Código expirado" });
 
@@ -205,5 +249,28 @@ export const resetPassword = async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Error al restablecer contraseña" });
+  }
+};
+
+export const toggleTwoFA = async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ error: "Debes indicar el estado de enabled (booleano)" });
+    }
+
+    const user = req.user;
+    user.twoFAEnabled = enabled;
+    if (!enabled) {
+      user.twoFAHash = null;
+      user.twoFAExp = null;
+    }
+    await user.save();
+
+    res.json({ ok: true, twoFAEnabled: user.twoFAEnabled });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Error al actualizar 2FA" });
   }
 };
