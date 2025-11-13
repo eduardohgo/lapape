@@ -125,11 +125,11 @@ export async function verifyEmail(req, res, next) {
     const normalizedEmail = normalizeEmail(email);
     const trimmedCode = typeof code === "string" ? code.trim() : String(code || "").trim();
 
-    if (!isEmail(email) || !trimmedCode) {
+    if (!isEmail(email) || !code) {
       return res.status(400).json({ error: "Solicitud inválida" });
     }
 
-    const user = await User.findOne({ email: normalizedEmail });
+    const user = await User.findOne({ email: normalizeEmail(email) });
     if (!user || !user.verifyCode || !user.verifyCodeExpires) {
       return res.status(400).json({ error: "Código inválido" });
     }
@@ -138,7 +138,7 @@ export async function verifyEmail(req, res, next) {
       return res.status(400).json({ error: "El código ha expirado" });
     }
 
-    const valid = await compareToken(trimmedCode, user.verifyCode);
+    const valid = await compareToken(code, user.verifyCode);
     if (!valid) {
       return res.status(400).json({ error: "Código incorrecto" });
     }
