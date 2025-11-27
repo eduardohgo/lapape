@@ -20,11 +20,13 @@ const SESSION_MINUTES = Number.isFinite(rawMinutes) && rawMinutes > 0 ? rawMinut
 const JWT_EXPIRES_IN = `${SESSION_MINUTES}m`;
 
 function toPublicUser(user) {
+  const role = (user.rol || user.role || "CLIENTE").toString().toUpperCase();
   return {
     id: user._id.toString(),
     nombre: user.nombre,
     email: user.email,
-    rol: user.rol,
+    rol: role,
+    role,
     isVerified: user.isVerified,
     twoFAEnabled: user.twoFAEnabled,
     lastLoginAt: user.lastLoginAt,
@@ -125,11 +127,11 @@ export async function verifyEmail(req, res, next) {
     const normalizedEmail = normalizeEmail(email);
     const trimmedCode = typeof code === "string" ? code.trim() : String(code || "").trim();
 
-    if (!isEmail(email) || !code) {
+    if (!isEmail(email) || !trimmedCode) {
       return res.status(400).json({ error: "Solicitud inválida" });
     }
 
-    const user = await User.findOne({ email: normalizeEmail(email) });
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user || !user.verifyCode || !user.verifyCodeExpires) {
       return res.status(400).json({ error: "Código inválido" });
     }
@@ -138,7 +140,7 @@ export async function verifyEmail(req, res, next) {
       return res.status(400).json({ error: "El código ha expirado" });
     }
 
-    const valid = await compareToken(code, user.verifyCode);
+    const valid = await compareToken(trimmedCode, user.verifyCode);
     if (!valid) {
       return res.status(400).json({ error: "Código incorrecto" });
     }
@@ -202,7 +204,14 @@ export async function loginStep1(req, res, next) {
       devLog: `CÓDIGO 2FA: ${code}`,
     });
 
-    return res.json({ ok: true, stage: "2fa", email: user.email, message: "Hemos enviado un código a tu correo" });
+    return res.json({
+      ok: true,
+      stage: "2fa",
+      needOtp: true,
+      email: user.email,
+      user: toPublicUser(user),
+      message: "Hemos enviado un código a tu correo",
+    });
   } catch (err) {
     return next(err);
   }
@@ -211,8 +220,9 @@ export async function loginStep1(req, res, next) {
 export async function loginStep2(req, res, next) {
   try {
     const { email, code } = req.body;
+    const trimmedCode = typeof code === "string" ? code.trim() : String(code || "").trim();
 
-    if (!isEmail(email) || !code) {
+    if (!isEmail(email) || !trimmedCode) {
       return res.status(400).json({ error: "Solicitud inválida" });
     }
 
@@ -229,7 +239,7 @@ export async function loginStep2(req, res, next) {
       return res.status(400).json({ error: "El código 2FA ha expirado" });
     }
 
-    const ok = await compareToken(code, user.twoFAHash);
+    const ok = await compareToken(trimmedCode, user.twoFAHash);
     if (!ok) {
       return res.status(400).json({ error: "Código 2FA incorrecto" });
     }

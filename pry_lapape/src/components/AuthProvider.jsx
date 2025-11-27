@@ -27,9 +27,12 @@ export default function AuthProvider({ children }) {
 
   const login = ({ user, token, remember = false }) => {
     const store = remember ? localStorage : sessionStorage;
+    const otherStore = remember ? sessionStorage : localStorage;
     try {
       store.setItem("user", JSON.stringify(user));
       store.setItem("token", token);
+      otherStore.removeItem("user");
+      otherStore.removeItem("token");
     } catch {}
     setUser(user);
     setToken(token);
@@ -46,7 +49,7 @@ export default function AuthProvider({ children }) {
     setToken(null);
   };
 
-  const value = useMemo(() => ({ user, token, login, logout }), [user, token]);
+  const value = useMemo(() => ({ user, token, login, logout, loading: false }), [user, token]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
