@@ -6,7 +6,8 @@ import Header from "@/components/Header";
 import Input from "@/components/Inputs";
 import { PrimaryButton, SecondaryButton } from "@/components/Buttons";
 import { LogIn, UserPlus, Package, Sparkles, Shield, Truck, Star } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, decodeJWT } from "@/lib/api";
+import { useAuth } from "@/components/AuthProvider";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,74 +15,95 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { login: authLogin } = useAuth();
+
+  const normalizeUser = (rawUser, fallbackEmail, token) => {
+    const payload = token ? decodeJWT(token) : {};
+    const role =
+      (rawUser?.role || rawUser?.rol || payload?.role || payload?.rol || "CLIENTE").toUpperCase();
+
+    return {
+      id: rawUser?.id || payload?.id || payload?._id || "",
+      nombre: rawUser?.nombre || payload?.nombre || "",
+      email: rawUser?.email || payload?.email || fallbackEmail,
+      role,
+      rol: role,
+      isVerified: rawUser?.isVerified ?? payload?.isVerified ?? true,
+      twoFAEnabled: rawUser?.twoFAEnabled ?? payload?.twoFAEnabled ?? false,
+      lastLoginAt: rawUser?.lastLoginAt || payload?.lastLoginAt || null,
+    };
+  };
+
+  const goToDashboard = (role) => {
+    const normalized = (role || "").toUpperCase();
+    if (normalized === "DUENO" || normalized === "ADMIN") {
+      router.push("/dueño");
+    } else if (normalized === "TRABAJADOR" || normalized === "EMPLEADO") {
+      router.push("/trabajador");
+    } else {
+      router.push("/cliente");
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password) {
+    const emailTrimmed = email.trim();
+
+    if (!emailTrimmed || !password) {
       alert("Ingresa tu correo y contraseña.");
       return;
     }
     try {
       setLoading(true);
-      const res = await api("/auth/login", { body: { email, password } });
+      const res = await api("/auth/login", { body: { email: emailTrimmed, password } });
 
       // 1) Si falta verificar el correo
       if (res.needEmailVerify) {
         alert("Verifica tu correo para continuar.");
-        router.push(`/verificar-correo?email=${encodeURIComponent(email)}`);
+        router.push(`/verificar-correo?email=${encodeURIComponent(emailTrimmed)}`);
         return;
       }
 
       // 2) Si requiere OTP (2FA por correo)
-      if (res.needOtp) {
-        // Opcional: podrías guardar un temp token si tu backend lo envía (res.tempToken)
-        router.push(`/verificar-otp?email=${encodeURIComponent(email)}`);
+      if (res.needOtp || res.stage === "2fa") {
+        try {
+          sessionStorage.setItem(
+            "pending-2fa",
+            JSON.stringify({ email: emailTrimmed, remember, user: res.user || null })
+          );
+        } catch (storageErr) {
+          console.warn("No se pudo guardar el estado para 2FA", storageErr);
+        }
+        router.push(`/verificar-2fa?email=${encodeURIComponent(emailTrimmed)}`);
         return;
       }
 
       // 3) Login completo con token
       if (res.token) {
-        const payload = parseJwt(res.token);
-        const user = {
-          id: payload?.id,
-          role: payload?.role || payload?.rol || "CLIENTE",
-          email,
-        };
-        if (remember) {
-          localStorage.setItem("token", res.token);
-          localStorage.setItem("user", JSON.stringify(user));
-        } else {
-          sessionStorage.setItem("token", res.token);
-          sessionStorage.setItem("user", JSON.stringify(user));
+        const user = normalizeUser(res.user, emailTrimmed, res.token);
+        authLogin({ user, token: res.token, remember });
+        try {
+          sessionStorage.removeItem("pending-2fa");
+        } catch (storageErr) {
+          console.warn("No se pudo limpiar el estado de 2FA", storageErr);
         }
-
-        // Redirección por rol
-        const role = (user.role || "").toUpperCase();
-        if (role === "DUENO" || role === "ADMIN") router.push("/admin");
-        else if (role === "TRABAJADOR" || role === "EMPLEADO") router.push("/trabajador");
-        else router.push("/cliente");
+        goToDashboard(user.role || user.rol);
         return;
       }
 
       // Si no llega nada reconocible
       alert("Respuesta inesperada del servidor.");
     } catch (err) {
+      if (err?.data?.needEmailVerify || err?.message?.toLowerCase?.().includes("verifica")) {
+        alert(err.message || "Verifica tu correo antes de continuar");
+        router.push(`/verificar-correo?email=${encodeURIComponent(emailTrimmed)}`);
+        return;
+      }
       alert(err.message || "Error al iniciar sesión");
     } finally {
       setLoading(false);
     }
   };
-
-  // Helper simple para leer el JWT
-  function parseJwt(token) {
-    try {
-      const base64Url = token.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      return JSON.parse(decodeURIComponent(escape(window.atob(base64))));
-    } catch {
-      return {};
-    }
-  }
 
   return (
     <>
